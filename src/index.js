@@ -1,176 +1,106 @@
 'use strict';
 
-var typeis =   require('blear.utils.typeis');
-var time =     require('blear.utils.time');
-var fun =      require('blear.utils.function');
-var object =   require('blear.utils.object');
-
-var win = window;
-var doc = document;
-var REG_LOAD_COMPLETE = /loaded|complete/;
-var defaults = {
-    /**
-     * 链接地址
-     * @type string
-     */
-    url: '',
-
-    /**
-     * 连接超时
-     * @type number
-     */
-    timeout: 10000,
-
-    /**
-     * 是否销毁节点
-     * @type boolean
-     */
-    destroy: true
-};
+var fun =    require('blear.utils.function');
+var array =  require('blear.utils.array');
+var loader = require('blear.utils.loader');
 
 
 /**
- * 资源加载器
- * @param tagName
- * @param options
- * @param callback
- * @returns {{abort: abort}}
+ * 判断是否支持 webp
+ * @returns {Function}
  */
-var load = function (tagName, options, callback) {
-    if (typeis.String(options)) {
-        options = {
-            url: options
-        };
-    }
+exports.supportWebp = (function () {
+    var callbackList = [];
+    var done = false;
+    var supportsWebP = false;
 
-    options = object.assign({}, defaults, options);
+    //Sample 2x2 black and white WebP image.
+    var webpBase64 = 'data:image/webp;base64,UklGRjoAAABXRUJQVlA4IC4AAACyAgCdASoCAAIALmk0mk0iIiIiIgBoSygABc6WWgAA/veff/0PP8bA//LwYAAA';
 
-    var url = options.url;
-    var timeout = options.timeout;
-    var isImageNode = tagName === 'img';
-    var node = isImageNode ? new Image() : doc.createElement(tagName);
+    loader.img(webpBase64, function (err) {
+        done = true;
+        var img = this;
 
-    var timeid = 0;
-
-    if (timeout > 0) {
-        timeid = setTimeout(function () {
-            var err = new Error('request timeout');
-            err.type = 'timeout';
-            cleanup();
-            onCallback(err);
-        }, timeout);
-    }
-
-    /**
-     * 清除节点等信息
-     * @type {Function}
-     */
-    var cleanup = fun.once(function () {
-        node.onload = node.onerror = node.onreadystatechange = null;
-
-        if (!isImageNode && options.destroy) {
-            doc.body.removeChild(node);
-        }
-
-        clearTimeout(timeid);
-        node = null;
-    });
-
-    /**
-     * ready
-     * @type {Function}
-     */
-    var onCallback = fun.once(function (eve) {
-        var err = null;
-
-        if (eve && eve.type === 'error') {
-            err = new Error('response error');
-            err.type = 'response';
-        } else if (eve instanceof Error) {
-            err = eve;
-        }
-
-        if (typeis.Function(callback)) {
-            callback.call(node, err, node);
-        }
-
-        cleanup();
-    });
-
-    switch (tagName) {
-        case 'script':
-            node.async = true;
-            node.src = url;
-            break;
-
-        case 'link':
-            node.rel = 'stylesheet';
-            node.href = url;
-            break;
-
-        case 'img':
-            node.src = url;
-            break;
-    }
-
-
-    if ('onload' in node) {
-        node.onload = node.onerror = onCallback;
-    } else {
-        /* istanbul ignore next */
-        node.onreadystatechange = function (eve) {
-            if (REG_LOAD_COMPLETE.test(node.readyState + '')) {
-                eve = eve || win.event;
-                onCallback(eve);
+        if (err) {
+            supportsWebP = false;
+        } else {
+            if (img.width === 2 && img.height === 2) {
+                supportsWebP = true;
+            } else {
+                supportsWebP = false;
             }
-        };
-    }
-
-    if (!isImageNode) {
-        doc.body.appendChild(node);
-    }
-
-    if (isImageNode && node.complete) {
-        time.nextTick(onCallback);
-    }
-
-    return {
-        abort: function abort() {
-            var err = new Error('request aborted');
-            err.type = 'aborted';
-            onCallback(err);
         }
+
+        array.each(callbackList, function (index, callback) {
+            callback(supportsWebP);
+        });
+
+        callbackList = null;
+    });
+
+    return function (callback) {
+        callback = fun.noop(callback);
+
+        if (done) {
+            return callback(supportsWebP);
+        }
+
+        callbackList.push(callback);
     };
-};
+}());
 
-/**
- * 加载脚本文件
- * @param options {String|object} 配置
- * @param [callback] {Function} 完毕回调
- */
-exports.js = function (options, callback) {
-    return load('script', options, callback);
-};
+
+var reImageView2 = /[?&]imageView2\/[^&]*/;
+var reQuestion = /\?/;
 
 
 /**
- * 加载样式文件
- * @param options {String|object} 配置
- * @param [callback] {Function} 完毕回调
+ * 七牛地址进行 webp 转换
+ * @param url {String} url地址
+ * @returns {String}
+ *
+ * @example
+ * ```
+ * image.qiniuWebp('a.png');
+ * // => 'a.png?imageView2/2/format/webp'
+ * ```
  */
-exports.css = function (options, callback) {
-    return load('link', options, callback);
+exports.qiniuWebp = function (url) {
+    var oldImageView2;
+
+    url = url.replace(reImageView2, function (source) {
+        oldImageView2 = source;
+        return '';
+    });
+    var oldImageView2List = [];
+
+    if (oldImageView2) {
+        oldImageView2List = oldImageView2.slice(1).split('/');
+    } else {
+        oldImageView2List = ['imageView2', '2'];
+    }
+
+    var newImageView2List = [];
+    var lastkey = '';
+
+    array.each(oldImageView2List, function (index, key) {
+        if (lastkey === 'format') {
+            newImageView2List.pop();
+            return;
+        }
+
+        if (!key) {
+            return;
+        }
+
+        newImageView2List.push(key);
+        lastkey = key;
+    });
+
+    newImageView2List.push('format');
+    newImageView2List.push('webp');
+
+    var connect = reQuestion.test(url) ? '&' : '?';
+
+    return url + connect + newImageView2List.join('/');
 };
-
-
-/**
- * 加载图片文件
- * @param options {String|object} 配置
- * @param [callback] {Function} 完毕回调
- */
-exports.img = function (options, callback) {
-    return load('img', options, callback);
-};
-
-
-exports.defaults = defaults;
