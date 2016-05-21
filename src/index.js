@@ -22,15 +22,18 @@ exports.supportWebp = (function () {
         var img = this;
 
         if (err) {
+            /* istanbul ignore next */
             supportsWebP = false;
         } else {
             if (img.width === 2 && img.height === 2) {
                 supportsWebP = true;
             } else {
+                /* istanbul ignore next */
                 supportsWebP = false;
             }
         }
 
+        /* istanbul ignore next */
         array.each(callbackList, function (index, callback) {
             callback(supportsWebP);
         });
@@ -45,6 +48,7 @@ exports.supportWebp = (function () {
             return callback(supportsWebP);
         }
 
+        /* istanbul ignore next */
         callbackList.push(callback);
     };
 }());
